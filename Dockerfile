@@ -5,7 +5,7 @@ COPY pyproject.toml ./
 COPY src/ src/
 RUN pip install --no-cache-dir --prefix=/install .
 
-# --- Étape 2 : image de test (dépendances de dev + tests) ---
+# --- Étape 2 : image de test (dépendances de dev, tests, sources.csv) ---
 FROM builder AS test
 RUN pip install --no-cache-dir ".[dev]"
 COPY tests/ tests/
