@@ -23,4 +23,4 @@ USER gazette
 WORKDIR /home/gazette
 COPY sources.csv ./
 COPY migrations/ migrations/
-CMD ["python", "-m", "gazette.collecte"]
+CMD ["python", "-m", "gazette.collecteur"]

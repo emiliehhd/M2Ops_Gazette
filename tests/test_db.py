@@ -1,28 +1,10 @@
 """Tests de la base : ils ont besoin d'un PostgreSQL (fourni par Docker Compose et la CI)."""
-import os
-
-import pytest
-
-from gazette.db import connexion, migrer, synchroniser_sources
-
-DSN = os.environ.get("GAZETTE_TEST_DSN")
-pytestmark = pytest.mark.skipif(not DSN, reason="GAZETTE_TEST_DSN non défini : pas de base de test")
+from gazette.db import migrer, synchroniser_sources
 
 SOURCES = [
     {"nom": "Le Monde", "type": "PQN", "url": "https://www.lemonde.fr/rss/une.xml"},
     {"nom": "Sud Ouest", "type": "PQR", "url": "https://www.sudouest.fr/rss.xml"},
 ]
-
-
-@pytest.fixture
-def conn():
-    """Une connexion dans un schéma `test` vidé : les tests ne touchent jamais aux vraies tables."""
-    with connexion(DSN) as c:
-        c.execute("DROP SCHEMA IF EXISTS test CASCADE")
-        c.execute("CREATE SCHEMA test")
-        c.execute("SET search_path TO test")
-        c.commit()
-        yield c
 
 
 def test_migrer_deux_fois_n_applique_qu_une_fois(conn):
