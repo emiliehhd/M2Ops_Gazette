@@ -73,8 +73,15 @@ def main() -> None:
             for nom, type_, actif, echecs, reussite in lignes:
                 etat = "actif" if actif else "EN SOMMEIL"
                 print(f"{nom:20} {type_}  {etat:10}  échecs={echecs}  dernière réussite={reussite}")
+        elif commande == "reveiller" and len(sys.argv) > 2:
+            nom = sys.argv[2]
+            ligne = conn.execute(
+                "UPDATE sources SET actif = TRUE, echecs_consecutifs = 0 WHERE nom = %s RETURNING nom",
+                (nom,),
+            ).fetchone()
+            print(f"{nom} réveillée" if ligne else f"Source inconnue : {nom}")
         else:
-            sys.exit(f"Commande inconnue : {commande} (attendu : migrer ou etat)")
+            sys.exit(f"Commande inconnue : {commande} (attendu : migrer, etat, reveiller \"Nom\")")
 
 
 if __name__ == "__main__":
