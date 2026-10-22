@@ -3,22 +3,30 @@ from pathlib import Path
 
 import pytest
 
-from gazette.collecte import lire_sources, parse
+from gazette.collecte import ecrire_bruts, identifiant, lire_sources, parse
 
 RACINE = Path(__file__).parent.parent
 FIXTURE = Path(__file__).parent / "fixtures" / "lemonde_une.xml"
-FETCHED_AT = datetime(2026, 10, 20, 12, 0, tzinfo=timezone.utc)
+RECUPERE_LE = datetime(2026, 10, 20, 12, 0, tzinfo=timezone.utc)
 
 
 def test_parse_flux_le_monde():
-    items = parse(FIXTURE.read_bytes(), "Le Monde", fetched_at=FETCHED_AT)
+    items = parse(FIXTURE.read_bytes(), "Le Monde", recupere_le=RECUPERE_LE)
     assert len(items) >= 1
     for item in items:
+        assert set(item) == {
+            "id", "source", "lien", "titre", "resume",
+            "publie_le", "recupere_le", "rubrique", "payload",
+        }
         assert item["source"] == "Le Monde"
-        assert item["title"]
-        assert item["link"].startswith("https://")
-        assert item["published_at"].endswith("+00:00")
-        assert item["fetched_at"] == FETCHED_AT.isoformat()
+        assert item["titre"]
+        assert item["lien"].startswith("https://")
+        assert item["publie_le"].endswith("+00:00")
+        assert item["recupere_le"] == RECUPERE_LE.isoformat()
+        assert item["id"] == identifiant("Le Monde", item["lien"])
+        # On borne : ni texte intégral ni images dans le payload
+        assert "content" not in item["payload"]
+        assert not any(k.startswith("media") for k in item["payload"])
 
 
 def test_parse_item_sans_extrait():
@@ -26,9 +34,19 @@ def test_parse_item_sans_extrait():
     <item><title>Sans extrait</title><link>https://exemple.fr/a</link>
     <guid>a</guid><pubDate>Tue, 20 Oct 2026 10:00:00 GMT</pubDate></item>
     </channel></rss>"""
-    items = parse(xml, "Test", fetched_at=FETCHED_AT)
-    assert items[0]["summary"] == ""
-    assert items[0]["published_at"] == "2026-10-20T10:00:00+00:00"
+    items = parse(xml, "Test", recupere_le=RECUPERE_LE)
+    assert items[0]["resume"] == ""
+    assert items[0]["publie_le"] == "2026-10-20T10:00:00+00:00"
+
+
+def test_deux_passages_zero_doublon(tmp_path):
+    xml = FIXTURE.read_bytes()
+    premier = parse(xml, "Le Monde", recupere_le=RECUPERE_LE)
+    second = parse(xml, "Le Monde")  # même flux, relu plus tard
+    assert ecrire_bruts(premier, tmp_path) == (len(premier), 0)
+    assert ecrire_bruts(second, tmp_path) == (0, len(second))
+    fichiers = list(tmp_path.rglob("*.json"))
+    assert len(fichiers) == len(premier)
 
 
 def test_lire_sources_extrait_l_adresse(tmp_path):

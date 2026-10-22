@@ -15,6 +15,11 @@ services:
       context: .
       target: test
     profiles: ["test"]
+    environment:
+      GAZETTE_TEST_DSN: "host=db dbname=${POSTGRES_DB} user=${POSTGRES_USER} password=${POSTGRES_PASSWORD}"
+    depends_on:
+      db:
+        condition: service_healthy
 
   db:
     image: postgres:16
@@ -26,6 +31,52 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # --- Orchestration (profil "orchestration") : docker compose --profile orchestration up -d ---
+  airflow-init-db:
+    image: postgres:16
+    profiles: ["orchestration"]
+    env_file: .env
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    entrypoint: ["bash", "-c"]
+    command:
+      - >-
+        psql -h db -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -tAc
+        "SELECT 1 FROM pg_database WHERE datname = 'airflow'" | grep -q 1
+        || psql -h db -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -c "CREATE DATABASE airflow"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  airflow:
+    build:
+      context: .
+      dockerfile: infra/airflow/Dockerfile
+    profiles: ["orchestration"]
+    command: standalone
+    restart: unless-stopped
+    user: "${AIRFLOW_UID:-1000}:0"
+    env_file: .env
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DEFAULT_TIMEZONE: Europe/Paris
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"  # pas de mot de passe : interface sur 127.0.0.1 seulement
+      AIRFLOW__DAG_PROCESSOR__REFRESH_INTERVAL: "60"
+    volumes:
+      - ./dags:/opt/airflow/dags:ro
+      - ./sources.csv:/opt/gazette/sources.csv:ro
+      - ./migrations:/opt/gazette/migrations:ro
+      - ./data:/opt/gazette/data
+    ports:
+      - "127.0.0.1:${AIRFLOW_PORT:-8080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      airflow-init-db:
+        condition: service_completed_successfully
 
 volumes:
   pgdata:

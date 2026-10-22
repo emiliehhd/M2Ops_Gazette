@@ -10,6 +10,7 @@ FROM builder AS test
 RUN pip install --no-cache-dir ".[dev]"
 COPY tests/ tests/
 COPY sources.csv ./
+COPY migrations/ migrations/
 CMD ["pytest"]
 
 # --- Étape finale : image d'exécution, petite et non root ---
@@ -21,4 +22,5 @@ COPY --from=builder /install /usr/local
 USER gazette
 WORKDIR /home/gazette
 COPY sources.csv ./
-CMD ["python", "-m", "gazette.collecte"]
+COPY migrations/ migrations/
+CMD ["python", "-m", "gazette.collecteur"]
