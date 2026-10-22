@@ -56,23 +56,7 @@ Adresses des flux, conditions d'utilisation et observations : `sources.csv`. Les
 | **Conteneurs** | **Docker** | Podman (compatible, mais moins répandu et moins documenté pour Compose) | Standard, utilisé dans le TD 2 |
 
 ## 6. Architecture
-```mermaid
-flowchart TD
-    S[(Flux RSS<br/>4 PQR + 4 PQN)] -->|XML, fréquence par source| C[Collecte · TD 3<br/>Python + feedparser]
-    C -->|items bruts| B[(Brut · TD 3<br/>Parquet dans MinIO<br/>raw/AAAA-MM-JJ/)]
-    B -->|articles bruts| N[Nettoyage et qualité · TD 4<br/>dédoublonnage, dates UTC,<br/>fraîcheur < 24 h, règles]
-    N -->|articles propres| P[(Propre<br/>PostgreSQL)]
-    P --> T[Thèmes · TD 5-6<br/>embeddings + HDBSCAN<br/>runs tracés et versionnés]
-    T -->|thèmes du jour| G[(Gold<br/>PostgreSQL)]
-    G --> L[Livraison · TD 7<br/>édition de 7 h, vérifiée et archivée]
-    AF{{Airflow · ordonnanceur}} -.déclenche.-> C
-    AF -.déclenche chaque matin.-> N
-    C -.métriques.-> PG[Pushgateway]
-    N -.-> PG
-    T -.-> PG
-    L -.-> PG
-    PG --> PR[Airflow] --> GR[Healthchecks.io<br/>alertes] -->|alerte| EQ((Équipe · runbook · journal de bord))
-```
+(capture : `docs/img/schema.png`)
 
 **Ce qui circule :** des items RSS (XML) → des articles bruts (titre, extrait, lien, date, source, date de collecte) → des articles propres → des thèmes du jour → l'édition. Les métriques de chaque étape partent vers la supervision.
 
