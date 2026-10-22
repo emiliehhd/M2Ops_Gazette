@@ -12,7 +12,8 @@ FETCHED_AT = datetime(2026, 10, 20, 12, 0, tzinfo=timezone.utc)
 
 def test_parse_flux_le_monde():
     items = parse(FIXTURE.read_bytes(), "Le Monde", fetched_at=FETCHED_AT)
-    assert len(items) >= 1
+    #assert len(items) >= 1
+    assert len(items) >= 999
     for item in items:
         assert item["source"] == "Le Monde"
         assert item["title"]
