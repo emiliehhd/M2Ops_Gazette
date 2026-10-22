@@ -15,6 +15,11 @@ services:
       context: .
       target: test
     profiles: ["test"]
+    environment:
+      GAZETTE_TEST_DSN: "host=db dbname=${POSTGRES_DB} user=${POSTGRES_USER} password=${POSTGRES_PASSWORD}"
+    depends_on:
+      db:
+        condition: service_healthy
 
   db:
     image: postgres:16

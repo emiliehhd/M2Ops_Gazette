@@ -8,6 +8,19 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: gazette
+          POSTGRES_PASSWORD: gazette
+          POSTGRES_DB: gazette
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U gazette"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      GAZETTE_TEST_DSN: "host=localhost dbname=gazette user=gazette password=gazette"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
