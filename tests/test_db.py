@@ -12,6 +12,7 @@ def test_migrer_deux_fois_n_applique_qu_une_fois(conn):
     assert migrer(conn) == [
         "001_creer_table_sources.sql",
         "002_creer_tables_propres_et_rejets.sql",
+        "003_creer_metriques_et_controles.sql",
     ]
     assert migrer(conn) == []
     colonnes = {
@@ -82,4 +83,16 @@ def test_tables_propres_et_rejets_ne_gardent_ni_payload_ni_auteur(conn):
         "publie_le",
         "recupere_le",
         "traite_le",
+    }
+
+
+def test_tables_de_metriques_et_d_etat_des_controles(conn):
+    migrer(conn)
+    assert colonnes(conn, "metriques") == {"id", "mesure_le", "nom", "etiquette", "valeur"}
+    assert colonnes(conn, "controles_etat") == {
+        "controle",
+        "en_echec",
+        "depuis",
+        "derniere_alerte",
+        "detail",
     }

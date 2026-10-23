@@ -1,7 +1,7 @@
 # Données — dictionnaire
 
 Ce que la collecte produit et ce qu'elle retient. Début du dictionnaire de données (TD 3) ;
-complété au fil des TD (articles propres et rejets au TD 4, thèmes au TD 5).
+complété au fil des TD (articles propres, rejets, métriques et contrôles au TD 4, thèmes au TD 5).
 
 Règles communes :
 - **Dates** : ISO 8601 en **UTC** (`2026-10-22T08:45:41+00:00`). La date telle que publiée
@@ -55,7 +55,7 @@ Réveiller une source après correction :
 
 | Colonne | Description |
 |---|---|
-| `version` | Nom du fichier de migration appliqué (`001_creer_table_sources.sql`, `002_creer_tables_propres_et_rejets.sql`) |
+| `version` | Nom du fichier de migration appliqué (`001_creer_table_sources.sql`, `002_creer_tables_propres_et_rejets.sql`, `003_creer_metriques_et_controles.sql`) |
 | `appliquee_le` | Date d'application |
 
 ## 4. Journal de la collecte (une ligne JSON par événement)
@@ -67,6 +67,10 @@ Réveiller une source après correction :
 | `passe_terminee` | `sources`, `ok`, `inchangees`, `erreurs`, `en_sommeil`, `recus`, `ecrits`, `ignores`, `duree_s` |
 | `passe_nettoyage_terminee` | `entres`, `gardes`, `rejetes`, `illisibles`, `par_regle`, `rapport` |
 | `brut_illisible` | `fichier` (ou `id`) : fichier du brut ni JSON valide ni complet, ignoré |
+| `controles_termines` | `en_echec` (liste d'identifiants de contrôles), `ok` |
+| `alerte_envoyee` | `controles` : contrôles annoncés sur Discord |
+| `alerte_non_envoyee` | `erreur` : Discord a refusé ou était injoignable (jamais l'adresse du webhook) |
+| `alerte_non_configuree` | `controles` : alerte à envoyer, mais `DISCORD_WEBHOOK_URL` est vide |
 
 Erreurs : **transitoires** (HTTP 429, 5xx, timeout, réseau) réessayées après 2 s, 10 s, 30 s ;
 **permanentes** (autres 4xx, flux illisible) sans nouvel essai. Dans les deux cas, un échec
@@ -117,4 +121,30 @@ Contenu : articles traités, gardés, rejetés ; rejets par règle ; par source 
 (règle, source) les plus fréquents ; règles à surveiller (au moins 30 % d'une source et au moins
 3 articles) ; trois exemples de titres rejetés par règle. Le premier jour compte aussi
 l'arriéré du brut, traité en une fois.
+
+## 8. Table `metriques` (PostgreSQL)
+
+Créée par `migrations/003_creer_metriques_et_controles.sql`. Une mesure par ligne ; chaque passe
+ajoute ses lignes, ce qui garde l'historique. Liste des métriques : `docs/controles.md`.
+
+| Colonne | Type | Description |
+|---|---|---|
+| `id` | entier auto-incrémenté | Clé primaire |
+| `mesure_le` | date (fuseau) | Moment de la mesure |
+| `nom` | texte | Nom de la métrique (`collecte_recus`, `jour_taux_rejet_par_source`…) |
+| `etiquette` | texte | De quoi on parle : une source, une règle, un contrôle ; vide pour une valeur globale |
+| `valeur` | nombre | La mesure |
+
+## 9. Table `controles_etat` (PostgreSQL)
+
+L'état de chaque contrôle de qualité, pour n'alerter qu'à l'apparition d'une panne, en rappel
+après 24 h, et au rétablissement.
+
+| Colonne | Type | Description |
+|---|---|---|
+| `controle` | texte, clé primaire | Identifiant (`C04_taux_rejet_par_source`…) |
+| `en_echec` | booléen | `true` tant que le fait est faux |
+| `depuis` | date (fuseau) | Début de l'état actuel |
+| `derniere_alerte` | date (fuseau), peut être nulle | Dernier message envoyé ; nulle si la panne n'a jamais pu être annoncée |
+| `detail` | texte | Ce qui a été constaté lors du dernier contrôle |
 

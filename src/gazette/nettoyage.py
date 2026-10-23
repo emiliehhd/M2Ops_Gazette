@@ -18,6 +18,7 @@ import psycopg
 from gazette.collecte import DOSSIER_BRUTS
 from gazette.collecteur import journal
 from gazette.db import connexion, migrer
+from gazette.metriques import enregistrer_metriques, metriques_nettoyage
 from gazette.normalisation import normaliser_article
 from gazette.rapport import construire_rapport, ecrire_rapport
 from gazette.regles import filtrer
@@ -141,7 +142,8 @@ def traiter_passe(
 def main() -> None:
     with connexion() as conn:
         migrer(conn)
-        traiter_passe(conn)
+        compteurs = traiter_passe(conn)
+        enregistrer_metriques(conn, datetime.now(timezone.utc), metriques_nettoyage(compteurs))
 
 
 if __name__ == "__main__":
