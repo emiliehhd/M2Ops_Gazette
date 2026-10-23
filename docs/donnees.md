@@ -1,7 +1,7 @@
 # Données — dictionnaire
 
 Ce que la collecte produit et ce qu'elle retient. Début du dictionnaire de données (TD 3) ;
-complété au fil des TD (articles propres et rejets au TD 4, thèmes au TD 5).
+complété au fil des TD (articles propres, rejets, métriques et contrôles au TD 4, thèmes au TD 5).
 
 Règles communes :
 - **Dates** : ISO 8601 en **UTC** (`2026-10-22T08:45:41+00:00`). La date telle que publiée
@@ -25,7 +25,7 @@ la collecte ne crée aucun doublon. `<source>` est le nom de la source sans acce
 | `publie_le` | date UTC | non (`null` possible) | Date de publication, sinon de mise à jour, convertie en UTC | `pubDate` / `published`, sinon `updated` |
 | `recupere_le` | date UTC | oui | Moment où **nous** avons lu le flux | calculé |
 | `rubrique` | texte | non (`null` possible) | Première catégorie de l'item. Absente du flux « À la une » du Monde | `category` / `category term` |
-| `payload` | objet | oui | Les champs du flux **tels que reçus**, pour pouvoir rejouer le nettoyage : `id`, `title`, `link`, `summary`, `published`, `updated`, `author` quand ils existent. **Jamais** `content` (texte intégral) ni `media_*` (images) | flux |
+| `payload` | objet | oui | Les champs du flux **tels que reçus**, pour pouvoir rejouer le nettoyage : `id`, `title`, `link`, `summary`, `published`, `updated` quand ils existent. **Jamais** `author` (donnée personnelle, plus collecté depuis le 23/10/2026), `content` (texte intégral) ni `media_*` (images) | flux |
 
 Pièges connus, à traiter au nettoyage (TD 4) :
 - `resume` vide sur certains items (observé : Le Figaro le 20/10, Sud Ouest le 22/10) ;
@@ -55,7 +55,7 @@ Réveiller une source après correction :
 
 | Colonne | Description |
 |---|---|
-| `version` | Nom du fichier de migration appliqué (`001_creer_table_sources.sql`, `002_creer_tables_propres_et_rejets.sql`) |
+| `version` | Nom du fichier de migration appliqué (`001_creer_table_sources.sql`, `002_creer_tables_propres_et_rejets.sql`, `003_creer_metriques_et_controles.sql`) |
 | `appliquee_le` | Date d'application |
 
 ## 4. Journal de la collecte (une ligne JSON par événement)
@@ -67,6 +67,10 @@ Réveiller une source après correction :
 | `passe_terminee` | `sources`, `ok`, `inchangees`, `erreurs`, `en_sommeil`, `recus`, `ecrits`, `ignores`, `duree_s` |
 | `passe_nettoyage_terminee` | `entres`, `gardes`, `rejetes`, `illisibles`, `par_regle`, `rapport` |
 | `brut_illisible` | `fichier` (ou `id`) : fichier du brut ni JSON valide ni complet, ignoré |
+| `controles_termines` | `en_echec` (liste d'identifiants de contrôles), `ok` |
+| `alerte_envoyee` | `controles` : contrôles annoncés sur Discord |
+| `alerte_non_envoyee` | `erreur` : Discord a refusé ou était injoignable (jamais l'adresse du webhook) |
+| `alerte_non_configuree` | `controles` : alerte à envoyer, mais `DISCORD_WEBHOOK_URL` est vide |
 
 Erreurs : **transitoires** (HTTP 429, 5xx, timeout, réseau) réessayées après 2 s, 10 s, 30 s ;
 **permanentes** (autres 4xx, flux illisible) sans nouvel essai. Dans les deux cas, un échec
@@ -89,7 +93,7 @@ normalisation et règles d'exclusion. Alimentée à chaque passe par `gazette.ne
 | `rubrique` | texte, peut être nul | Rubrique normalisée (absente chez plusieurs sources) |
 | `traite_le` | date (fuseau) | Moment du nettoyage ; sert à compter « ce qui a été traité ce jour-là » |
 
-**Ce qu'on ne copie pas :** le champ `payload` du brut et le nom de l'auteur (donnée personnelle).
+**Ce qu'on ne copie pas :** le champ `payload` du brut (le nom de l'auteur n'est plus collecté depuis le 23/10/2026).
 
 ## 6. Table `rejets` (PostgreSQL)
 
@@ -117,4 +121,92 @@ Contenu : articles traités, gardés, rejetés ; rejets par règle ; par source 
 (règle, source) les plus fréquents ; règles à surveiller (au moins 30 % d'une source et au moins
 3 articles) ; trois exemples de titres rejetés par règle. Le premier jour compte aussi
 l'arriéré du brut, traité en une fois.
+
+## 8. Table `metriques` (PostgreSQL)
+
+Créée par `migrations/003_creer_metriques_et_controles.sql`. Une mesure par ligne ; chaque passe
+ajoute ses lignes, ce qui garde l'historique. Liste des métriques : `docs/controles.md`.
+
+| Colonne | Type | Description |
+|---|---|---|
+| `id` | entier auto-incrémenté | Clé primaire |
+| `mesure_le` | date (fuseau) | Moment de la mesure |
+| `nom` | texte | Nom de la métrique (`collecte_recus`, `jour_taux_rejet_par_source`…) |
+| `etiquette` | texte | De quoi on parle : une source, une règle, un contrôle ; vide pour une valeur globale |
+| `valeur` | nombre | La mesure |
+
+## 9. Table `controles_etat` (PostgreSQL)
+
+L'état de chaque contrôle de qualité, pour n'alerter qu'à l'apparition d'une panne, en rappel
+après 24 h, et au rétablissement.
+
+| Colonne | Type | Description |
+|---|---|---|
+| `controle` | texte, clé primaire | Identifiant (`C04_taux_rejet_par_source`…) |
+| `en_echec` | booléen | `true` tant que le fait est faux |
+| `depuis` | date (fuseau) | Début de l'état actuel |
+| `derniere_alerte` | date (fuseau), peut être nulle | Dernier message envoyé ; nulle si la panne n'a jamais pu être annoncée |
+| `detail` | texte | Ce qui a été constaté lors du dernier contrôle |
+
+## 10. Contrat de données
+
+Ce que chaque jeu de données contient, à quelle fraîcheur et combien de temps on le garde.
+Les durées sont une **proposition de l'équipe, écrite ici**. Elles ne sont pas encore appliquées
+automatiquement : la purge sera une tâche Airflow, à venir.
+
+| Jeu de données | Contenu | Clé | Mis à jour | Fraîcheur | Rétention | Ensuite |
+|---|---|---|---|---|---|---|
+| Brut `data/articles_bruts/` | Un fichier par article, tel que reçu (sans auteur) | `id` = empreinte de `(source, lien)` | À chaque passe (30 min) | Articles que le flux expose au moment de la passe | **90 jours** | Suppression |
+| `articles_propres` | Articles gardés, normalisés | `id` (celui du brut) | Après chaque passe | Moins de 24 h à la collecte | **90 jours** | Suppression |
+| `rejets` | Articles écartés et règle de rejet | `id` | Après chaque passe | Idem | **30 jours** (le temps d'ajuster les règles) | Suppression |
+| `metriques` | Chiffres de chaque passe | (nom, étiquette, date) | Après chaque passe | | **180 jours** | Suppression |
+| `controles_etat` | État actuel de chaque contrôle | `controle` | Après chaque passe | | État courant seulement | |
+| `rapports/` | Rapport de qualité du jour (`.md`, `.json`) | Jour (UTC) | Après chaque passe | | **90 jours** | Suppression |
+| Éditions (TD 7) | La gazette publiée à 7 h | Jour | Chaque matin | Articles de moins de 24 h | **1 mois** en ligne | **Stockage froid** (stockage objet S3-compatible), conservé 1 an, puis suppression |
+
+Pourquoi ces durées :
+- **90 jours de brut**, comme proposé dans l'énoncé du TD 4. `articles_propres` ne dépasse jamais
+  la durée du brut : sans cela, un article propre n'aurait plus d'origine à retrouver.
+- **30 jours de rejets** : ils servent à ajuster les règles, pas à archiver.
+- Les **éditions** de plus d'un mois quittent le stockage actif pour un stockage froid, moins cher et
+  rarement lu, plutôt que d'être supprimées tout de suite.
+
+**Schéma :** voir les sections 1 à 9 (champs, types, clés). **Dates :** toujours en UTC.
+
+**Fraîcheur :** la collecte passe toutes les 30 minutes ; un article n'entre dans `articles_propres`
+que s'il avait moins de 24 h au moment de sa collecte (règle `R13_trop_ancien`, contrôle
+`C03_aucun_article_trop_ancien`) ; l'édition sort à 7 h.
+
+## 11. Ce qu'on ne stocke pas
+
+| Jamais | Pourquoi |
+|---|---|
+| Le texte intégral d'un article, les images, les commentaires | Hors cadrage, et non republiables : on ne garde que titre, extrait court (300 caractères au plus), lien, date et source |
+| Le nom de l'auteur | Donnée personnelle dont aucun traitement ne se sert. Plus collecté depuis le 23/10/2026 ; effacé des fichiers déjà écrits par `python -m gazette.conformite purger-auteurs` |
+| Le champ `payload` dans les tables propres | Seul le brut le garde, pour pouvoir rejouer le nettoyage |
+| Toute donnée sur les lecteurs (profils, abonnés, suivi) | Aucune donnée personnelle |
+
+Le brut est écrit une seule fois et ne change jamais. **Une exception voulue** : la purge de
+l'auteur, par minimisation des données. Le choix est détaillé dans `src/gazette/conformite.py`.
+
+## 12. Traçabilité
+
+D'un article, on retrouve toute la chaîne :
+
+```
+flux de la source (sources.url_flux)
+  -> data/articles_bruts/<source>/<id>.json      (l'item tel que reçu)
+  -> articles_propres.id  ou  rejets.id          (même id ; pour un rejet, la règle)
+  -> rapports/qualite-AAAA-MM-JJ.md              (le décompte du jour)
+```
+
+L'`id` est calculé à partir de `(source, lien)` : le même article a le même `id` à chaque étape.
+
+```bash
+# D'un id, d'un morceau de lien ou de titre : la décision, la source, le brut
+docker compose run --rm app python -m gazette.tracer "espace jeux"
+```
+
+Limites : la règle de rejet enregistrée est celle du moment, les règles ne sont pas versionnées ;
+si le brut a dépassé sa rétention, la trace le signale (« fichier introuvable »).
 
