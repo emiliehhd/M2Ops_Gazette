@@ -1,11 +1,12 @@
-"""DAG Airflow : une passe de collecte sur toutes les sources actives, toutes les 30 minutes."""
+"""DAG Airflow : une passe de collecte, puis le nettoyage du brut, toutes les 30 minutes."""
+
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from airflow.sdk import dag, task
 
-RACINE = Path("/opt/gazette")  # sources.csv, migrations/ et data/ sont montés ici (docker-compose.yml)
+RACINE = Path("/opt/gazette")  # sources.csv, migrations/, data/ et rapports/ sont montés ici
 
 
 @dag(
@@ -15,7 +16,7 @@ RACINE = Path("/opt/gazette")  # sources.csv, migrations/ et data/ sont montés 
     catchup=False,  # au redémarrage, on ne rattrape pas les passes manquées
     max_active_runs=1,  # jamais deux passes en même temps sur les mêmes éditeurs
     default_args={"retries": 1, "retry_delay": timedelta(minutes=5)},
-    tags=["gazette", "td3"],
+    tags=["gazette", "td3", "td4"],
 )
 def collecte_flux():
     @task
@@ -32,7 +33,19 @@ def collecte_flux():
             raise RuntimeError(f"Toutes les sources ont échoué : {compteurs}")
         return compteurs  # visible dans l'onglet XCom de la tâche
 
-    collecter()
+    @task
+    def nettoyer() -> dict:
+        """Du brut aux articles propres et aux rejets, puis le rapport de qualité du jour."""
+        from gazette.db import connexion, migrer
+        from gazette.nettoyage import traiter_passe
+
+        with connexion() as conn:
+            migrer(conn, RACINE / "migrations")
+            return traiter_passe(
+                conn, RACINE / "data" / "articles_bruts", RACINE / "rapports"
+            )  # compteurs visibles dans l'onglet XCom
+
+    collecter() >> nettoyer()
 
 
 collecte_flux()

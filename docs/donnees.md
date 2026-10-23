@@ -1,7 +1,7 @@
 # Données — dictionnaire
 
 Ce que la collecte produit et ce qu'elle retient. Début du dictionnaire de données (TD 3) ;
-complété au fil des TD (articles propres au TD 4, thèmes au TD 5).
+complété au fil des TD (articles propres et rejets au TD 4, thèmes au TD 5).
 
 Règles communes :
 - **Dates** : ISO 8601 en **UTC** (`2026-10-22T08:45:41+00:00`). La date telle que publiée
@@ -55,7 +55,7 @@ Réveiller une source après correction :
 
 | Colonne | Description |
 |---|---|
-| `version` | Nom du fichier de migration appliqué (`001_creer_table_sources.sql`) |
+| `version` | Nom du fichier de migration appliqué (`001_creer_table_sources.sql`, `002_creer_tables_propres_et_rejets.sql`) |
 | `appliquee_le` | Date d'application |
 
 ## 4. Journal de la collecte (une ligne JSON par événement)
@@ -65,7 +65,56 @@ Réveiller une source après correction :
 | `source_collectee` | `source`, `statut` (`ok`, `inchange`, `erreur`), `http`, `tentatives`, `recus`, `ecrits`, `ignores`, `duree_s`, `erreur` |
 | `source_mise_en_sommeil` | `source`, `echecs_consecutifs`, `derniere_erreur` |
 | `passe_terminee` | `sources`, `ok`, `inchangees`, `erreurs`, `en_sommeil`, `recus`, `ecrits`, `ignores`, `duree_s` |
+| `passe_nettoyage_terminee` | `entres`, `gardes`, `rejetes`, `illisibles`, `par_regle`, `rapport` |
+| `brut_illisible` | `fichier` (ou `id`) : fichier du brut ni JSON valide ni complet, ignoré |
 
 Erreurs : **transitoires** (HTTP 429, 5xx, timeout, réseau) réessayées après 2 s, 10 s, 30 s ;
 **permanentes** (autres 4xx, flux illisible) sans nouvel essai. Dans les deux cas, un échec
 final incrémente `echecs_consecutifs`.
+
+## 5. Table `articles_propres` (PostgreSQL)
+
+Créée par `migrations/002_creer_tables_propres_et_rejets.sql`. Les articles **gardés** après
+normalisation et règles d'exclusion. Alimentée à chaque passe par `gazette.nettoyage`.
+
+| Colonne | Type | Description |
+|---|---|---|
+| `id` | texte, clé primaire | **Identique à l'`id` du brut** : c'est le lien de traçabilité vers `data/articles_bruts/<source>/<id>.json` |
+| `source` | texte | Nom de la source |
+| `lien` | texte | Adresse de l'article chez l'éditeur. `(source, lien)` est unique |
+| `titre` | texte, non vide | Titre normalisé : sans HTML, entités décodées, espaces uniques, encodage réparé |
+| `extrait` | texte (≤ 300 caractères) | Extrait normalisé, coupé à la fin d'un mot avec « … » s'il dépasse |
+| `publie_le` | date (fuseau), non nulle | Date de publication en UTC |
+| `recupere_le` | date (fuseau) | Moment de la collecte |
+| `rubrique` | texte, peut être nul | Rubrique normalisée (absente chez plusieurs sources) |
+| `traite_le` | date (fuseau) | Moment du nettoyage ; sert à compter « ce qui a été traité ce jour-là » |
+
+**Ce qu'on ne copie pas :** le champ `payload` du brut et le nom de l'auteur (donnée personnelle).
+
+## 6. Table `rejets` (PostgreSQL)
+
+Les articles **écartés**, avec la règle qui les a écartés (identifiants dans `docs/qualite.md`).
+
+| Colonne | Type | Description |
+|---|---|---|
+| `id` | texte, clé primaire | `id` du brut |
+| `source`, `lien`, `titre` | texte | Comme dans `articles_propres` (pas d'extrait) |
+| `regle` | texte | Identifiant de la **première** règle qui s'applique (`R06_autopromo`, `R13_trop_ancien`…) |
+| `publie_le`, `recupere_le` | date (fuseau), peuvent être nulles | `publie_le` est nulle pour `R03_date_absente` |
+| `traite_le` | date (fuseau) | Moment du nettoyage |
+
+Un article du brut traité figure dans **exactement une** des deux tables. Ceux dont l'`id` n'est
+dans aucune des deux restent à traiter à la passe suivante : rejouer le nettoyage ne crée donc
+aucun doublon. Aucune clé étrangère vers `sources` : le brut d'une source retirée de
+`sources.csv` reste valable.
+
+## 7. Rapport de qualité — `rapports/qualite-AAAA-MM-JJ.md` et `.json`
+
+Un rapport **par jour (UTC)**, recalculé après chaque passe à partir des tables
+`articles_propres` et `rejets` (donc toujours à jour). Le dossier `rapports/` n'est pas versionné.
+
+Contenu : articles traités, gardés, rejetés ; rejets par règle ; par source ; les cinq couples
+(règle, source) les plus fréquents ; règles à surveiller (au moins 30 % d'une source et au moins
+3 articles) ; trois exemples de titres rejetés par règle. Le premier jour compte aussi
+l'arriéré du brut, traité en une fois.
+

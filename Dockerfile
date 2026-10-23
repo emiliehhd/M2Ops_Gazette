@@ -16,8 +16,8 @@ CMD ["pytest"]
 # --- Étape finale : image d'exécution, petite et non root ---
 FROM python:3.12-slim AS final
 RUN useradd --create-home --uid 1000 gazette \
- && mkdir /home/gazette/data \
- && chown gazette:gazette /home/gazette/data
+ && mkdir /home/gazette/data /home/gazette/rapports \
+ && chown gazette:gazette /home/gazette/data /home/gazette/rapports
 COPY --from=builder /install /usr/local
 USER gazette
 WORKDIR /home/gazette
