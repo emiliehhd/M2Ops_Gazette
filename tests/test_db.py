@@ -1,4 +1,5 @@
 """Tests de la base : ils ont besoin d'un PostgreSQL (fourni par Docker Compose et la CI)."""
+
 from gazette.db import migrer, synchroniser_sources
 
 SOURCES = [
@@ -8,7 +9,10 @@ SOURCES = [
 
 
 def test_migrer_deux_fois_n_applique_qu_une_fois(conn):
-    assert migrer(conn) == ["001_creer_table_sources.sql"]
+    assert migrer(conn) == [
+        "001_creer_table_sources.sql",
+        "002_creer_tables_propres_et_rejets.sql",
+    ]
     assert migrer(conn) == []
     colonnes = {
         nom
@@ -18,8 +22,14 @@ def test_migrer_deux_fois_n_applique_qu_une_fois(conn):
         )
     }
     assert colonnes == {
-        "nom", "type", "url_flux", "actif", "derniere_reussite",
-        "echecs_consecutifs", "etag", "last_modified",
+        "nom",
+        "type",
+        "url_flux",
+        "actif",
+        "derniere_reussite",
+        "echecs_consecutifs",
+        "etag",
+        "last_modified",
     }
 
 
@@ -37,3 +47,39 @@ def test_synchroniser_garde_l_etat_des_sources(conn):
         ("Le Monde", "https://www.lemonde.fr/rss/en_continu.xml", True, 2),
         ("Sud Ouest", "https://www.sudouest.fr/rss.xml", True, 0),
     ]
+
+
+def colonnes(conn, table):
+    return {
+        nom
+        for (nom,) in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'test' AND table_name = %s",
+            (table,),
+        )
+    }
+
+
+def test_tables_propres_et_rejets_ne_gardent_ni_payload_ni_auteur(conn):
+    migrer(conn)
+    assert colonnes(conn, "articles_propres") == {
+        "id",
+        "source",
+        "lien",
+        "titre",
+        "extrait",
+        "publie_le",
+        "recupere_le",
+        "rubrique",
+        "traite_le",
+    }
+    assert colonnes(conn, "rejets") == {
+        "id",
+        "source",
+        "lien",
+        "titre",
+        "regle",
+        "publie_le",
+        "recupere_le",
+        "traite_le",
+    }

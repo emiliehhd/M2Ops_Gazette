@@ -7,16 +7,17 @@ ni les commentaires.
 
 Projet M2Ops · M2 Data Engineering & IA · Efrei · 2026-2027.
 
-## Où on en est (TD 3)
+## Où on en est (TD 4)
 
 | TD | Livré |
 |---|---|
 | 1 · Cadrage | Veille, note de cadrage, schéma d'architecture, `sources.csv` (4 PQN + 4 PQR vérifiées) |
 | 2 · Socle | Dépôt et revue par pull request, Docker / Docker Compose, PostgreSQL, CI GitHub |
 | 3 · Collecte | Collecte automatique de toutes les sources toutes les 30 min (Airflow), stockage brut sans doublon, reprise après erreur, mise en sommeil des sources en échec |
+| 4 · Nettoyage (en cours) | Normalisation, règles d'exclusion identifiées, tables `articles_propres` et `rejets`, rapport de qualité à chaque passe. Reste : contrôles de qualité et alerte |
 
-À venir : nettoyage et contrôle qualité (TD 4), thèmes (TD 5-6), édition de 7 h (TD 7),
-supervision (TD 8), infrastructure consolidée (TD 9).
+À venir : thèmes (TD 5-6), édition de 7 h (TD 7), supervision (TD 8), infrastructure
+consolidée (TD 9).
 
 ## Comment ça marche
 
@@ -25,8 +26,13 @@ flowchart LR
     S[Flux RSS<br/>sources.csv] --> C[Collecteur]
     subgraph Docker Compose
         AF{{Airflow<br/>toutes les 30 min}} -.déclenche.-> C
+        AF -.puis.-> N[Nettoyage]
         C -->|un fichier par article| B[(data/articles_bruts/)]
         C -->|état de chaque source| P[(PostgreSQL<br/>table sources)]
+        B --> N
+        N -->|gardés| AP[(PostgreSQL<br/>articles_propres)]
+        N -->|écartés + règle| RJ[(PostgreSQL<br/>rejets)]
+        N --> RQ[rapports/qualite-AAAA-MM-JJ.md]
     end
 ```
 
@@ -42,6 +48,17 @@ flowchart LR
 En cas d'erreur : **transitoire** (503, 429, 5xx, timeout, réseau) → nouvel essai après
 2 s, 10 s puis 30 s ; **permanente** (404, 403, flux illisible) → pas de nouvel essai.
 Au **3e échec de suite**, la source est **mise en sommeil** et n'est plus appelée.
+
+Ensuite, **le nettoyage** (tâche `nettoyer` du DAG, ou `python -m gazette.nettoyage`) :
+1. repère les articles du brut pas encore traités (leur `id` n'est ni dans `articles_propres`
+   ni dans `rejets`) ;
+2. les **normalise** (HTML retiré, entités, espaces, encodage, dates en UTC, extrait borné) ;
+3. applique les **règles d'exclusion** (`src/gazette/regles.py`, identifiants `R01_…` à `R15_…`,
+   documentées dans `docs/qualite.md`) et écarte les doublons d'une même source ;
+4. enregistre les gardés dans `articles_propres` et les autres dans `rejets` (avec la règle),
+   sans jamais copier `payload` ni l'auteur ;
+5. régénère le **rapport de qualité du jour** dans `rapports/` (par règle, par source, règles
+   à surveiller).
 
 Détail des champs, des tables et du journal : [docs/donnees.md](docs/donnees.md).
 
@@ -76,12 +93,16 @@ docker compose --profile orchestration up -d --build
    relancer la commande.
 2. Activer le DAG **`collecte_flux`** avec son interrupteur : il passe à :00 et :30,
    heure de Paris.
-3. « Déclencher » lance une passe tout de suite. Le détail d'une passe : tâche `collecter`,
-   onglets **Journaux** (une ligne par source) et **XCom** (compteurs de la passe).
+3. « Déclencher » lance une passe tout de suite. Le détail d'une passe : tâches `collecter`
+   (une ligne de journal par source) puis `nettoyer` (une ligne `passe_nettoyage_terminee`),
+   onglets **Journaux** et **XCom** (compteurs).
 
 Pour qu'elle continue de tourner : machine allumée, Docker lancé, pas de
 `docker compose down`. Les passes manquées ne sont pas rattrapées (`catchup=False`).
 Arrêter : `docker compose --profile orchestration down`.
+
+> Après avoir modifié le code Python (`src/`), relancer avec `--build` : l'image Airflow
+> contient notre paquet. Les fichiers de `dags/` sont lus tels quels.
 
 ## Commandes utiles
 
@@ -97,7 +118,15 @@ for d in data/articles_bruts/*/; do echo "$(ls "$d" | wc -l)  $(basename "$d")";
 
 # Collecter une seule source, sans mettre la table à jour
 docker compose run --rm app python -m gazette.collecte "Le Monde"
+
+# Nettoyer à la main ce qui n'est pas encore traité (et régénérer le rapport du jour)
+docker compose run --rm app python -m gazette.nettoyage
+
+# Articles rejetés, par règle (valeurs par défaut de .env.example)
+docker compose exec db psql -U gazette -d gazette -c "SELECT regle, count(*) FROM rejets GROUP BY regle ORDER BY 2 DESC"
 ```
+
+Le rapport du jour est dans `rapports/qualite-AAAA-MM-JJ.md`.
 
 > Après avoir modifié le code ou `sources.csv`, reconstruire l'image avant un
 > `docker compose run` : `docker compose build app`. (`bin/dev` le fait tout seul ;
@@ -109,14 +138,19 @@ docker compose run --rm app python -m gazette.collecte "Le Monde"
 bin/test
 ```
 
-Résultat attendu : **`13 passed`**. Les tests démarrent un PostgreSQL de test (schéma
+Résultat attendu : **`148 passed`**. Les tests démarrent un PostgreSQL de test (schéma
 séparé : vos données ne sont pas touchées) et un faux éditeur HTTP local (pas besoin
 d'Internet). Ils couvrent notamment :
 - **deux passages, zéro doublon** ;
 - **source en panne** : le faux serveur répond 503 → nouveaux essais, puis sommeil au
   3e échec, puis plus aucun appel ;
 - flux inchangé (304), source en erreur qui n'arrête pas les autres, 404 sans nouvel essai,
-  migrations appliquées une seule fois.
+  migrations appliquées une seule fois ;
+- **normalisation** (une fonction pure, un test par fonction) et **règles d'exclusion**
+  (chaque règle, plus des cas à ne pas écarter) ;
+- **nettoyage** : deux passages sans doublon, traçabilité d'un article propre à son brut,
+  ni auteur ni `payload` dans les tables, fichier illisible sans arrêt de la passe, rapport
+  du jour.
 
 Sans Docker (facultatif) : `pip install -e ".[dev]"` puis `pytest`. Les tests de base de
 données sont alors ignorés, sauf si `GAZETTE_TEST_DSN` pointe vers un PostgreSQL.
@@ -151,6 +185,8 @@ général), Le Parisien (flux sans date ni extrait), Le Télégramme (403).
 | Stockage brut | Un fichier JSON par article | Base de données seule (on perd le brut tel que reçu) |
 | Clé anti-doublon | `(source, lien)` | `guid` (pas fiable partout) |
 | Migrations | Fichiers SQL versionnés (`migrations/`) | Alembic (lourd pour une table), Flyway (Java, un conteneur de plus) |
+| Stockage propre | PostgreSQL (`articles_propres`, `rejets`) | Tout dans la même table (on perdrait la règle de rejet) |
+| Règles de qualité | Fonctions Python lisibles, un identifiant par règle | Un modèle (hors cadrage, non reproductible) |
 
 ## Organisation du dépôt
 
@@ -159,11 +195,16 @@ général), Le Parisien (flux sans date ni extrait), Le Télégramme (403).
 | `src/gazette/collecte.py` | Lecture de `sources.csv`, parseur, écriture des articles bruts |
 | `src/gazette/collecteur.py` | Passe multi-sources : GET conditionnel, reprise, sommeil, journal |
 | `src/gazette/db.py` | Migrations, table `sources`, commandes `etat` et `reveiller` |
+| `src/gazette/normalisation.py` | Une fonction pure par transformation (HTML, entités, espaces, encodage, dates, extrait) |
+| `src/gazette/regles.py` | Règles d'exclusion identifiées et dédoublonnage par source |
+| `src/gazette/nettoyage.py` | Du brut aux tables `articles_propres` et `rejets` |
+| `src/gazette/rapport.py` | Rapport de qualité (par règle, par source, règles à surveiller) |
 | `migrations/` | Migrations SQL versionnées, appliquées une seule fois |
-| `dags/` | Le DAG Airflow `collecte_flux` |
+| `dags/` | Le DAG Airflow `collecte_flux` (collecter, puis nettoyer) |
 | `infra/airflow/` | L'image Airflow avec notre paquet |
 | `tests/` | Tests, faux éditeur HTTP, flux enregistrés (`fixtures/`) |
-| `docs/` | Cadrage, CI/CD, dictionnaire de données |
+| `docs/` | Cadrage, CI/CD, dictionnaire de données, règles de qualité |
+| `rapports/` | Rapports de qualité quotidiens (non versionnés) |
 | `sources.csv` | Les sources, leur adresse, leurs conditions |
 | `Dockerfile`, `docker-compose.yml` | L'environnement, décrit en code |
 | `bin/dev`, `bin/test` | Lancer, tester |
@@ -177,6 +218,7 @@ général), Le Parisien (flux sans date ni extrait), Le Télégramme (403).
   machine qui héberge Airflow est allumée.
 - Les conditions de plusieurs éditeurs interdisent la rediffusion, voire l'extraction :
   question posée à l'enseignant.
+- Le rapport de qualité du premier jour compte tout l'arriéré du brut, traité en une fois.
 - Le brut est en JSON, comme demandé au TD 3 ; un format en colonnes (Parquet) est envisagé
   pour la suite.
 

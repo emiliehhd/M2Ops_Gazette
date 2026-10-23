@@ -6,6 +6,7 @@ services:
     env_file: .env
     volumes:
       - ./data:/home/gazette/data
+      - ./rapports:/home/gazette/rapports
     depends_on:
       db:
         condition: service_healthy
@@ -70,6 +71,7 @@ services:
       - ./sources.csv:/opt/gazette/sources.csv:ro
       - ./migrations:/opt/gazette/migrations:ro
       - ./data:/opt/gazette/data
+      - ./rapports:/opt/gazette/rapports
     ports:
       - "127.0.0.1:${AIRFLOW_PORT:-8080}:8080"
     depends_on:
