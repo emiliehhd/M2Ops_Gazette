@@ -2,20 +2,33 @@
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
+
 [project]
 name = "gazette"
 version = "0.1.0"
-requires-python = ">=3.10"
-dependencies = ["feedparser>=6.0", "requests>=2.31", "psycopg[binary]>=3.1"]
+description = "Pipeline M2Ops La Gazette"
+requires-python = ">=3.12"
+dependencies = [
+    "feedparser>=6.0.11",
+    "psycopg[binary]>=3.1.18",
+    "pydantic>=2.7.0",
+    "pyyaml>=6.0.1",
+    "scikit-learn>=1.4.0",
+    "sentence-transformers>=2.6.0",
+]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.5"]
-
-[tool.setuptools.packages.find]
-where = ["src"]
+dev = [
+    "pytest>=8.1.0",
+    "ruff>=0.3.0",
+]
 
 [tool.ruff]
 line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

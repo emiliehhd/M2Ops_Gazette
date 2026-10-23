@@ -1,0 +1,16 @@
+fenetre_heures: 24
+
+embeddings:
+  modele: "paraphrase-multilingual-MiniLM-L12-v2"
+  taille_vecteur: 384
+  batch_size: 32
+
+clustering:
+  min_cluster_size: 2
+  min_samples: 1
+  metric: "cosine"
+  cluster_selection_epsilon: 0.15
+
+mots_cles:
+  nombre_max: 5
+  stop_words: "french"
