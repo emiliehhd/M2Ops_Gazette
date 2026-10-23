@@ -14,7 +14,7 @@ Projet M2Ops · M2 Data Engineering & IA · Efrei · 2026-2027.
 | 1 · Cadrage | Veille, note de cadrage, schéma d'architecture, `sources.csv` (4 PQN + 4 PQR vérifiées) |
 | 2 · Socle | Dépôt et revue par pull request, Docker / Docker Compose, PostgreSQL, CI GitHub |
 | 3 · Collecte | Collecte automatique de toutes les sources toutes les 30 min (Airflow), stockage brut sans doublon, reprise après erreur, mise en sommeil des sources en échec |
-| 4 · Nettoyage | Normalisation, règles d'exclusion identifiées, tables `articles_propres` et `rejets`, rapport de qualité, contrôles de qualité après chaque passe, métriques et alerte Discord, contrat de données (rétention), traçabilité |
+| 4 · Nettoyage | Normalisation, règles d'exclusion identifiées, tables `articles_propres` et `rejets`, rapport de qualité, contrôles de qualité après chaque passe, métriques et alerte Discord |
 
 À venir : thèmes (TD 5-6), édition de 7 h (TD 7), supervision (TD 8), infrastructure
 consolidée (TD 9).
