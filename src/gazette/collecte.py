@@ -21,8 +21,8 @@ URL_RE = re.compile(r"https?://\S+")
 
 # Champs du flux qu'on garde tels que reçus dans `payload`.
 # Volontairement PAS : content (texte intégral), media_* (images), commentaires.
-CHAMPS_PAYLOAD = ("id", "title", "link", "summary", "published", "updated", "author")
-
+# (le nom d'un journaliste est une donnée personnelle dont rien ne se sert : on ne la collecte pas).
+CHAMPS_PAYLOAD = ("id", "title", "link", "summary", "published", "updated")
 
 def lire_sources(chemin: Path = SOURCES_CSV) -> list[dict]:
     """Lit sources.csv et renvoie [{nom, type, url}, ...]."""

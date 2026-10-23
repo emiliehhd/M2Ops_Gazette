@@ -3,7 +3,7 @@
 Chaque matin, lire la presse quotidienne régionale (PQR) et nationale (PQN) et publier un
 résumé des thèmes abordés : quels sujets, avec quelles sources, et où lire la suite.
 On ne garde que **titre, extrait, lien et date** : jamais l'article entier, ni les images,
-ni les commentaires.
+ni les commentaires, ni le nom des auteurs.
 
 Projet M2Ops · M2 Data Engineering & IA · Efrei · 2026-2027.
 
@@ -149,6 +149,12 @@ docker compose run --rm app python -m gazette.controles
 
 # Vérifier que le canal Discord fonctionne
 docker compose run --rm app python -m gazette.controles test-alerte
+
+# Tracer un article : décision (gardé ou rejeté, et par quelle règle), source, fichier brut
+docker compose run --rm app python -m gazette.tracer "morceau du titre ou du lien"
+
+# Effacer des fichiers bruts déjà écrits le nom des auteurs (donnée personnelle, plus collectée)
+docker compose run --rm app python -m gazette.conformite purger-auteurs
 ```
 
 > Après avoir modifié le code ou `sources.csv`, reconstruire l'image avant un
@@ -161,7 +167,7 @@ docker compose run --rm app python -m gazette.controles test-alerte
 bin/test
 ```
 
-Résultat attendu : **`189 passed`**. Les tests démarrent un PostgreSQL de test (schéma
+Résultat attendu : **`201 passed`**. Les tests démarrent un PostgreSQL de test (schéma
 séparé : vos données ne sont pas touchées) et un faux éditeur HTTP local (pas besoin
 d'Internet). Ils couvrent notamment :
 - **deux passages, zéro doublon** ;
@@ -176,7 +182,9 @@ d'Internet). Ils couvrent notamment :
   du jour ;
 - **contrôles** : chaque fait faux est détecté, l'alerte sonne une fois puis se rappelle après
   24 h puis annonce le rétablissement, Discord en panne (faux serveur local, rien n'est envoyé
-  à un vrai canal), l'adresse du webhook ne fuite jamais.
+  à un vrai canal), l'adresse du webhook ne fuite jamais ;
+- **conformité et traçabilité** : plus de nom d'auteur collecté, purge idempotente du brut
+  existant, trace d'un article jusqu'à son brut et à sa source.
 
 Sans Docker (facultatif) : `pip install -e ".[dev]"` puis `pytest`. Les tests de base de
 données sont alors ignorés, sauf si `GAZETTE_TEST_DSN` pointe vers un PostgreSQL.
@@ -214,6 +222,7 @@ général), Le Parisien (flux sans date ni extrait), Le Télégramme (403).
 | Stockage propre | PostgreSQL (`articles_propres`, `rejets`) | Tout dans la même table (on perdrait la règle de rejet) |
 | Règles de qualité | Fonctions Python lisibles, un identifiant par règle | Un modèle (hors cadrage, non reproductible) |
 | Contrôles de données | Requêtes SQL et Python écrites à la main | Great Expectations, Soda (trop lourds pour huit faits simples) |
+| Données personnelles | Ne pas collecter l'auteur (minimisation) | Le collecter puis le masquer au nettoyage (il resterait dans le brut) |
 | Alerte | Webhook Discord, un message par panne (rappel après 24 h) | Un message toutes les 30 min (bruit), mail (personne ne le lit à temps) |
 
 ## Organisation du dépôt
@@ -229,6 +238,8 @@ général), Le Parisien (flux sans date ni extrait), Le Télégramme (403).
 | `src/gazette/rapport.py` | Rapport de qualité (par règle, par source, règles à surveiller) |
 | `src/gazette/metriques.py` | Les chiffres de chaque passe, enregistrés dans la table `metriques` |
 | `src/gazette/controles.py` | Contrôles de qualité, état des pannes, alerte Discord |
+| `src/gazette/conformite.py` | Purge des noms d'auteurs du brut déjà écrit |
+| `src/gazette/tracer.py` | Traçabilité d'un article : décision, source, brut |
 | `migrations/` | Migrations SQL versionnées, appliquées une seule fois |
 | `dags/` | Le DAG Airflow `collecte_flux` (collecter, nettoyer, contrôler) |
 | `infra/airflow/` | L'image Airflow avec notre paquet |
@@ -249,6 +260,8 @@ général), Le Parisien (flux sans date ni extrait), Le Télégramme (403).
 - Les conditions de plusieurs éditeurs interdisent la rediffusion, voire l'extraction :
   question posée à l'enseignant.
 - Le rapport de qualité du premier jour compte tout l'arriéré du brut, traité en une fois.
+- Les durées de rétention sont écrites (`docs/donnees.md`, section 10) mais pas encore appliquées
+  automatiquement : la purge sera une tâche Airflow.
 - Si la machine ou Airflow s'arrête, rien ne tourne, alerte comprise : un battement de cœur
   externe (Healthchecks) est prévu avec la supervision.
 - Le brut est en JSON, comme demandé au TD 3 ; un format en colonnes (Parquet) est envisagé
